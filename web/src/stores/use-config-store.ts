@@ -66,6 +66,8 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
+const METASO_VIDEO_BASE_URL = "https://metaso.cn/api/openai/v1";
+const METASO_VIDEO_MODEL = "MiniMax-H3";
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -81,28 +83,35 @@ export const defaultConfig: AiConfig = {
             apiFormat: "openai",
             models: [
                 { name: "gpt-image-2", capability: "image" },
-                { name: "grok-imagine-video", capability: "video" },
                 { name: "gpt-5.5", capability: "text" },
                 { name: "gpt-4o-mini-tts", capability: "audio" },
             ],
         },
+        {
+            id: "metaso-video",
+            name: "Metaso Minimax-H3",
+            baseUrl: METASO_VIDEO_BASE_URL,
+            apiKey: "",
+            apiFormat: "openai",
+            models: [{ name: METASO_VIDEO_MODEL, capability: "video" }],
+        },
     ],
     model: "default::gpt-image-2",
     imageModel: "default::gpt-image-2",
-    videoModel: "default::grok-imagine-video",
+    videoModel: `metaso-video::${METASO_VIDEO_MODEL}`,
     textModel: "default::gpt-5.5",
     audioModel: "default::gpt-4o-mini-tts",
     audioVoice: "alloy",
     audioFormat: "mp3",
     audioSpeed: "1",
     audioInstructions: "",
-    videoSeconds: "6",
+    videoSeconds: "4",
     vquality: "720",
     videoGenerateAudio: "true",
     videoWatermark: "false",
     systemPrompt: "",
     reasoningEffort: "auto",
-    models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
+    models: ["default::gpt-image-2", `metaso-video::${METASO_VIDEO_MODEL}`, "default::gpt-5.5", "default::gpt-4o-mini-tts"],
     quality: "auto",
     size: "1:1",
     background: "",
@@ -224,9 +233,19 @@ export const useConfigStore = create<ConfigStore>()(
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
                 const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
                 const config = { ...defaultConfig, ...persistedConfig };
-                if (!Array.isArray(persistedConfig.channels)) config.channels = [];
+                if (!Array.isArray(persistedConfig.channels)) config.channels = defaultConfig.channels;
                 const channels = normalizeChannels(config);
+                const metasoChannel = defaultConfig.channels.find((channel) => channel.id === "metaso-video");
+                const savedMetasoChannel = channels.find((channel) => channel.id === metasoChannel?.id);
+                if (metasoChannel && savedMetasoChannel?.name === "Metaso 国内视频") {
+                    savedMetasoChannel.name = metasoChannel.name;
+                } else if (metasoChannel && !savedMetasoChannel) {
+                    channels.push(createModelChannel(metasoChannel));
+                }
                 const models = modelOptionsFromChannels(channels);
+                const videoModel = ["grok-imagine-video", "default::grok-imagine-video"].includes(persistedConfig.videoModel || "")
+                    ? defaultConfig.videoModel
+                    : normalizeModelOptionValue(config.videoModel, channels);
                 return {
                     ...current,
                     webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav },
@@ -237,7 +256,7 @@ export const useConfigStore = create<ConfigStore>()(
                         channels,
                         models,
                         imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
-                        videoModel: normalizeModelOptionValue(config.videoModel, channels),
+                        videoModel,
                         textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
                         audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
                         audioVoice: config.audioVoice || defaultConfig.audioVoice,
@@ -245,7 +264,7 @@ export const useConfigStore = create<ConfigStore>()(
                         audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
                         audioInstructions: config.audioInstructions || "",
                         reasoningEffort: config.reasoningEffort || "auto",
-                        videoSeconds: config.videoSeconds || "6",
+                        videoSeconds: config.videoSeconds || defaultConfig.videoSeconds,
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",

@@ -14,6 +14,7 @@ type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoRe
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
 type RequestOptions = { signal?: AbortSignal };
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
+const METASO_H3_MODEL = "MiniMax-H3";
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "plugin"; model: string };
@@ -117,15 +118,19 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const isMetasoH3 = modelOptionName(model) === METASO_H3_MODEL;
     const body = new FormData();
     body.append("model", modelOptionName(model));
     body.append("prompt", prompt);
-    body.append("seconds", normalizeVideoSeconds(config.videoSeconds));
-    if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-    body.append("resolution_name", normalizeVideoResolution(config.vquality));
-    body.append("preset", "normal");
-    const files = await Promise.all(references.slice(0, 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => body.append("input_reference[]", file));
+    body.append("seconds", isMetasoH3 ? normalizeMetasoH3Seconds(config.videoSeconds) : normalizeVideoSeconds(config.videoSeconds));
+    const size = isMetasoH3 ? normalizeMetasoH3Size(config.size) : normalizeVideoSize(config.size);
+    if (size) body.append("size", size);
+    if (!isMetasoH3) {
+        body.append("resolution_name", normalizeVideoResolution(config.vquality));
+        body.append("preset", "normal");
+    }
+    const files = await Promise.all(references.slice(0, isMetasoH3 ? 1 : 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
+    files.forEach((file) => body.append(isMetasoH3 ? "input_reference" : "input_reference[]", file));
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         if (!created.id) throw new Error(apiText("noVideoTaskId"));
@@ -175,11 +180,21 @@ function normalizeVideoSeconds(value: string) {
     return String(Math.max(1, Math.min(20, seconds)));
 }
 
+function normalizeMetasoH3Seconds(value: string) {
+    const seconds = Math.floor(Number(value) || 4);
+    return String([4, 8, 12].includes(seconds) ? seconds : 4);
+}
+
 function normalizeVideoSize(value: string) {
     if (value === "auto") return null;
     const size = value || "1280x720";
     if (/^\d+x\d+$/.test(size)) return size;
     return ["9:16", "2:3", "3:4"].includes(size) ? "720x1280" : "1280x720";
+}
+
+function normalizeMetasoH3Size(value: string) {
+    const size = normalizeVideoSize(value) || "1280x720";
+    return ["720x1280", "1280x720", "1024x1792", "1792x1024"].includes(size) ? size : "1280x720";
 }
 
 function normalizeVideoResolution(value: string) {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [调整] 默认视频模型切换为通过 metaso.cn 国内 OpenAI 兼容接口调用 MiniMax-H3，并为已有本地配置自动补充该渠道。
+
 ## v0.16.0 - 2026-08-18
 
 + [新增] 提示词来源新增 Freestylefly GPT Image 2 内置来源。
